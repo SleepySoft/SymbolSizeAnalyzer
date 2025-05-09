@@ -657,26 +657,30 @@ class StatisticsView(QScrollArea):
             try:
                 if chart_type == 'file_size':
                     display_data, y_labels, title = self._data_analysis_file_size(self.df)
-                    plot = self._plot_column_chart
-                    params = (display_data, y_labels, title, chart_type)
+                    self._plot_column_chart(display_data, y_labels, title, chart_type)
                 elif chart_type == 'symbols':
                     display_data, y_labels, title = self._data_analysis_symbol(self.df)
-                    plot = self._plot_column_chart
-                    params = (display_data, y_labels, title, chart_type)
+                    self._plot_column_chart(display_data, y_labels, title, chart_type)
                 elif chart_type == 'type':
                     display_data, labels, title = self._data_analysis_symbol_type(self.df)
-                    plot = self._plot_pie_chart
-                    params = (display_data, labels, title)
+
+                    # Extra operation for column chart.
+                    display_data_col = display_data.sort_values(ascending=True)
+                    labels_col = display_data_col.index.tolist()
+                    self._plot_column_chart(display_data_col, labels_col, title, 'type')
+
+                    self._plot_pie_chart(display_data, labels, title)
                 else:
                     raise ValueError(f"Unknown chart type: {chart_type}")
             except Exception as e:
                 self._add_placeholder(f"Aggregation failed: {str(e)}")
                 return
-            if display_data.empty:
-                self._add_placeholder("No valid data to display")
-                return
 
-            plot(*params)
+            # if display_data.empty:
+            #     self._add_placeholder("No valid data to display")
+            #     return
+            #
+            # plot(*params)
 
         except KeyError as ke:
             self._add_placeholder(f"Missing required field: {str(ke)}")
@@ -834,11 +838,17 @@ class StatisticsView(QScrollArea):
         return max(6, scaled_height)  # 最低保障6英寸
 
     def _get_chart_color(self, chart_type):
-        """Get color mapping for chart types"""
+        """Color mapping for visualization elements"""
         return {
-            'file_size': '#1f77b4',  # Steel blue
-            'symbols': '#2ca02c'  # Forest green
-        }.get(chart_type, '#444444')
+            'file_size': '#1f77b4', # Primary blue for quantitative data
+            'symbols': '#2ca02c',   # Balanced green for categorical metrics
+            'type': '#d62728',      # High-contrast red for key categories
+            'reserve1': '#9467bd',  # Muted purple for auxiliary datasets
+            'reserve2': '#ff7f0e',  # Warm orange for secondary indicators
+            'reserve3': '#8c564b',  # Neutral brown for background elements
+            'reserve4': '#e377c2',  # Vibrant pink for special cases
+            'reserve5': '#7f7f7f',  # Medium gray for neutral visualization
+        }.get(chart_type, '#17becf')  # Fallback color (cyan-blue)
 
     def _show_loading(self):
         """Show loading dialog"""
