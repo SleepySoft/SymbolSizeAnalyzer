@@ -657,10 +657,11 @@ class StatisticsView(QScrollArea):
 
                     fig.savefig(
                         filename,
-                        format=format,
                         dpi=300,
+                        format=format,
+                        facecolor='white',
+                        transparent=False,
                         bbox_inches="tight",
-                        transparent=True,
                         metadata={
                             'Creator': f"{self.__class__.__name__} Export",
                             'CreationDate': datetime.datetime.now().isoformat()
