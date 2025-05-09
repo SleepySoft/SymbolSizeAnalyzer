@@ -1,12 +1,14 @@
 import traceback
 from errno import EACCES
 
+import numpy as np
 import pandas as pd
 import re
 import seaborn as sns
 from textwrap import shorten
 
 import matplotlib as mpl
+
 mpl.use('Qt5Agg')
 
 from matplotlib import pyplot as plt
@@ -25,62 +27,91 @@ from PyQt5.QtGui import QStandardItemModel, QStandardItem
 mpl.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei']  # 多个中文字体备选
 mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
-
-def install_font(font_name):
-    try:
-        subprocess.check_call([sys.exec_prefix + r'\Scripts\conda.exe', 'install', '-c', 'msys2', font_name])
-    except Exception as e:
-        print(f"字体安装失败: {e}")
-
-# 在初始化时检查字体
-if 'SimHei' not in mpl.rcParams['font.sans-serif']:
-    install_font('fonts-wqy-zenhei')
-
-
-# 配置中文字体
-mpl.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei']
-mpl.rcParams['axes.unicode_minus'] = False
-
 print(plt.style.available)
 plt.style.use('seaborn-v0_8')
+
+
+symbol_type_map = {
+    # 代码段符号
+    'T': 'Global text symbol (executable code)',
+    't': 'Local text symbol (executable code)',
+
+    # 数据段符号
+    'D': 'Global initialized data',
+    'd': 'Local initialized data',
+    'B': 'Global uninitialized data (BSS)',
+    'b': 'Local uninitialized data (BSS)',
+
+    # 只读数据
+    'R': 'Global read-only data',
+    'r': 'Local read-only data',
+
+    # 特殊类型
+    'U': 'Undefined symbol',
+    'V': 'Global weak object symbol',
+    'W': 'Global weak symbol (not tagged as object)',
+    'w': 'Local weak symbol',
+
+    # 其他类型
+    'C': 'Common symbol',
+    'A': 'Absolute symbol',
+    'S': 'Global small object',
+    's': 'Local small object',
+    'G': 'Global optimized/grouped data',
+    'g': 'Local optimized/grouped data',
+    'N': 'Debugging symbol (noreturn)',
+
+    # 特殊场景
+    'I': 'Indirect symbol (PLT entry)',
+    'i': 'Local indirect symbol',
+    'P': 'Global procedure linkage table',
+    'p': 'Local procedure linkage table',
+    'F': 'Global file symbol',
+    'f': 'Local file symbol',
+
+    # 废弃类型（部分旧系统）
+    '?': 'Unknown symbol type',
+    'Z': 'Global zero-initialized (HP-UX)',
+    'z': 'Local zero-initialized (HP-UX)'
+}
 
 
 def parse_nm_output(file_path):
     data = []
     current_file = None
     pattern = re.compile(
-        r'^\s*'                          # 起始空格
-        r'([0-9a-fA-F]{8})\s+'           # 地址（8位十六进制）
-        r'([0-9a-fA-F]{8})\s+'           # 大小（8位十六进制）
-        r'([A-Za-z])\s+'                 # 符号类型（单个字母）
-        r'(.+)$'                         # 符号名（包含空格）
+        r'^\s*'  # 起始空格
+        r'([0-9a-fA-F]{8})\s+'  # 地址（8位十六进制）
+        r'([0-9a-fA-F]{8})\s+'  # 大小（8位十六进制）
+        r'([A-Za-z])\s+'  # 符号类型（单个字母）
+        r'(.+)$'  # 符号名（包含空格）
     )
-    
+
     with open(file_path, 'r') as f:
         for line in f:
             line = line.strip()
-            
+
             # 处理文件名行
             if line.endswith(':'):
                 current_file = line[:-1]
                 continue
-                
+
             # 跳过空行
             if not line:
                 continue
-                
+
             # 解析符号行
             match = pattern.match(line)
             if match:
                 address, size_hex, sym_type, symbol = match.groups()
-                
+
                 # 转换数值类型
                 try:
                     size = int(size_hex, 16)
                     address = int(address, 16)
                 except ValueError:
                     continue
-                
+
                 data.append({
                     'Filename': current_file,
                     'Address': f"0x{address:08x}",
@@ -90,18 +121,8 @@ def parse_nm_output(file_path):
                 })
             else:
                 print(f"无法解析的行: {line}")
-    
-    return pd.DataFrame(data)
 
-# # 使用示例
-# df = parse_nm_output('bcf_map.txt')
-# # df = parse_nm_output('btf_map.txt')
-#
-# df = df.sort_values('Size', ascending=False)
-# print(df)
-#
-# print(f'Total symbol count = {len(df)}')
-# print(f'Total symbol size = {df["Size"].sum()}')
+    return pd.DataFrame(data)
 
 
 def plot_file_sizes(df):
@@ -164,39 +185,20 @@ def plot_top_symbols(df):
     plt.show()
 
 
-# plot_file_sizes(df)
-# plot_top_symbols(df)
+def plot_nm_output(output_file: str):
+    """
+    Command reference: `nm --print-size --size-sort --demangle lib.a > output_file`
+    :param output_file: Output file name
+    :return: None
+    """
+    df = parse_nm_output(output_file)
+    df = df.sort_values('Size', ascending=False)
 
+    print(f'Total symbol count = {len(df)}')
+    print(f'Total symbol size = {df["Size"].sum()}')
 
-# def visualize_size(df):
-#     # 设置兼容性样式
-#     try:
-#         plt.style.use('seaborn-v0_8')  # 尝试新名称
-#     except OSError:
-#         plt.style.use('ggplot')  # 回退到其他样式
-#
-#     # 设置图表尺寸和字体
-#     plt.rcParams["figure.figsize"] = (14, 10)  # 增大画布
-#     plt.rcParams["font.size"] = 12  # 全局字体大小
-#
-#     # ===== 绘制文件总占用 =====
-#     file_size = df.groupby('Filename')['Size (bytes)'].sum().sort_values()
-#     ax = file_size.plot(kind='barh', color='steelblue')  # 改用原生绘图
-#
-#     # 添加数据标签
-#     for i, size in enumerate(file_size):
-#         ax.text(size + 0.1, i, f"{size} B", va='center')
-#
-#     plt.title('模块空间占用分析')
-#     plt.xlabel('占用空间 (字节)')
-#     plt.ylabel('文件名')
-#     plt.tight_layout()
-#     plt.show()
-#
-# # file_stats, top_symbols = analyze_symbols(symbol_size_sorted, top_n=100)
-# # visualize_analysis(file_stats, top_symbols)
-#
-# visualize_size(symbol_size_sorted)
+    plot_file_sizes(df)
+    plot_top_symbols(df)
 
 
 class MainWindow(QMainWindow):
@@ -396,6 +398,7 @@ class SymbolListView(QWidget):
         self.table.setModel(model)
         self.table.resizeColumnsToContents()
 
+
 class StatisticsView(QScrollArea):
     def __init__(self):
         super().__init__()
@@ -433,7 +436,8 @@ class StatisticsView(QScrollArea):
 
         print(f"滚动区域尺寸策略: {self.sizePolicy().horizontalPolicy()},{self.sizePolicy().verticalPolicy()}")
         print(f"容器尺寸限制: min={self.container.minimumSize()}, max={self.container.maximumSize()}")
-        print(f"滚动条状态: vertical={self.verticalScrollBar().isVisible()}, horizontal={self.horizontalScrollBar().isVisible()}")
+        print(
+            f"滚动条状态: vertical={self.verticalScrollBar().isVisible()}, horizontal={self.horizontalScrollBar().isVisible()}")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -443,22 +447,39 @@ class StatisticsView(QScrollArea):
         # 更新策略
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
-    def update_data(self, df, chart_type='both'):
+    def update_data(self, df: pd.DataFrame, chart_type='both'):
         """Update data and generate specified charts
         Args:
             chart_type: 'file_size' | 'symbols' | 'both'
+            :param chart_type:
+            :param df:
         """
         self._show_loading()
-        self.df = df.copy()
-        self.chart_type = chart_type.lower()
 
         try:
+            self.df = self._pre_process_data(df)
+            self.chart_type = chart_type.lower()
             self._async_generate_charts()
         except Exception as e:
             print(f'Chart plt fail: {str(e)}')
             print(traceback.format_exc())
         finally:
             self._hide_loading()
+
+    def _pre_process_data(self, df: pd.DataFrame):
+        try:
+            # Type conversion (safe mode)
+            self.df['Size'] = pd.to_numeric(self.df['Size'], errors='coerce')
+            valid_df = self.df.dropna(subset=['Size']).copy()
+
+            # Debug output
+            print(f"[Debug] Valid data count after preprocessing: {len(valid_df)}")
+            print(f"[Debug] Size distribution:\n{valid_df['Size'].describe()}")
+
+            return valid_df
+        except Exception as e:
+            print(f'Preprocess data error: {str(e)}')
+            return df.copy()
 
     def _async_generate_charts(self):
         QApplication.processEvents()
@@ -470,6 +491,8 @@ class StatisticsView(QScrollArea):
             self._create_dynamic_chart('file_size')
         if self.chart_type in ('symbols', 'both'):
             self._create_dynamic_chart('symbols')
+        if self.chart_type in ('type', 'both'):
+            self._create_dynamic_chart('type')
 
     def _create_dynamic_chart(self, chart_type):
         """Complete solution for empty grouping results"""
@@ -477,109 +500,29 @@ class StatisticsView(QScrollArea):
             if self.df.empty:
                 self._add_placeholder("Empty data")
                 return
-
-            # Column existence check
-            required_cols = ['Size', 'Filename'] if chart_type == 'file_size' else ['Size', 'Symbol']
-            missing_cols = [col for col in required_cols if col not in self.df.columns]
-            if missing_cols:
-                self._add_placeholder(f"Missing fields: {', '.join(missing_cols)}")
+            try:
+                if chart_type == 'file_size':
+                    display_data, y_labels, title = self._data_analysis_file_size(self.df)
+                    plot = self._plot_column_chart
+                    params = (display_data, y_labels, title, chart_type)
+                elif chart_type == 'symbols':
+                    display_data, y_labels, title = self._data_analysis_symbol(self.df)
+                    plot = self._plot_column_chart
+                    params = (display_data, y_labels, title, chart_type)
+                elif chart_type == 'type':
+                    display_data, labels, title = self._data_analysis_symbol_type(self.df)
+                    plot = self._plot_pie_chart
+                    params = (display_data, labels, title)
+                else:
+                    raise ValueError(f"Unknown chart type: {chart_type}")
+            except Exception as e:
+                self._add_placeholder(f"Aggregation failed: {str(e)}")
                 return
-
-            # Type conversion (safe mode)
-            self.df['Size'] = pd.to_numeric(self.df['Size'], errors='coerce')
-            valid_df = self.df.dropna(subset=['Size']).copy()
-
-            # Debug output
-            print(f"[Debug] Valid data count after preprocessing: {len(valid_df)}")
-            print(f"[Debug] Size distribution:\n{valid_df['Size'].describe()}")
-
-            if chart_type == 'file_size':
-                # Filename validity check
-                valid_df['Filename'] = valid_df['Filename'].fillna('UNKNOWN')
-                invalid_names = valid_df['Filename'].str.strip().eq('')
-                if invalid_names.any():
-                    print(f"[Debug] Found {invalid_names.sum()} empty filenames")
-                    valid_df.loc[invalid_names, 'Filename'] = 'UNKNOWN'
-
-                # Group aggregation (simplified)
-                try:
-                    grouped = valid_df.groupby('Filename')['Size'].sum()
-                    if grouped.empty:
-                        self._add_placeholder("No data after grouping (check filenames)")
-                        return
-
-                    # display_data = grouped.nlargest(15).sort_values(ascending=True)
-                    display_data = grouped.sort_values(ascending=True)
-                    print(f"[Debug] Grouping results:\n{display_data.head()}")
-
-                    y_labels = display_data.index.astype(str)  # Explicitly get labels <-- Fix point
-
-                    # Debug output
-                    print(f"[Debug] File label samples: {y_labels[:3]}")
-
-                    title = "File Size Distribution (Bytes)"
-
-                except Exception as e:
-                    self._add_placeholder(f"Aggregation failed: {str(e)}")
-                    return
-
-            elif chart_type == 'symbols':
-                # Symbol distribution logic
-                if 'Symbol' not in valid_df.columns:
-                    raise KeyError('Symbol')
-
-                limit = 150
-
-                # Filter processing
-                filtered = valid_df[['Symbol', 'Size']].nlargest(limit, 'Size')
-                # filtered = valid_df[['Symbol', 'Size']]
-                sorted_data = filtered.sort_values('Size', ascending=True)
-
-                # Format conversion
-                display_data = sorted_data.set_index('Symbol')['Size']
-                y_labels = display_data.index.astype(str)
-                title = f"TOP {limit} Symbol Size Distribution (Bytes)"
-
-            else:
-                raise ValueError(f"Unknown chart type: {chart_type}")
-
             if display_data.empty:
                 self._add_placeholder("No valid data to display")
                 return
 
-            # Dynamic size calculation
-            # font_height_inch = 0.2
-            # fig_height = len(display_data) * font_height_inch * 1.5
-            fig_height = self._calculate_fig_height(y_labels)
-            # fig_height = max(8, int(len(display_data) * 0.8))
-            fig = Figure(figsize=(12, fig_height), dpi=100)
-            self.figure_pool.append(fig)
-            ax = fig.add_subplot(111)
-
-            # Core plotting logic
-            max_value = display_data.max()
-            bars = ax.barh(y_labels, display_data.values,
-                           color=self._get_chart_color(chart_type))
-
-            # Style configuration
-            ax.set_xlim(right=max_value * 1.2)
-            ax.set_title(title, fontsize=12, pad=15)
-            ax.set_xlabel("Occupied Space", fontsize=10)
-            ax.grid(axis='x', linestyle='--', alpha=0.7)
-
-            # Dynamic label layout
-            for bar in bars:
-                width = bar.get_width()
-                ax.text(width + max_value * 0.02,
-                        bar.get_y() + bar.get_height() / 2,
-                        f"{width:,}",
-                        va='center',
-                        ha='left',
-                        fontsize=8,
-                        fontfamily='SimHei')
-
-            # Embed canvas
-            self._embed_canvas(fig, v_policy=QSizePolicy.Expanding)
+            plot(*params)
 
         except KeyError as ke:
             self._add_placeholder(f"Missing required field: {str(ke)}")
@@ -589,6 +532,143 @@ class StatisticsView(QScrollArea):
             self._add_placeholder(f"Rendering exception: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _plot_column_chart(self, display_data, y_labels, title, chart_type):
+        # Dynamic size calculation
+        fig_height = self._calculate_fig_height(y_labels)
+        fig = Figure(figsize=(12, fig_height), dpi=100)
+        self.figure_pool.append(fig)
+        ax = fig.add_subplot(111)
+
+        # Core plotting logic
+        max_value = display_data.max()
+        bars = ax.barh(y_labels, display_data.values,
+                       color=self._get_chart_color(chart_type))
+
+        # Style configuration
+        ax.set_xlim(right=max_value * 1.2)
+        ax.set_title(title, fontsize=12, pad=15)
+        ax.set_xlabel("Occupied Space", fontsize=10)
+        ax.grid(axis='x', linestyle='--', alpha=0.7)
+
+        # Dynamic label layout
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width + max_value * 0.02,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{width:,}",
+                    va='center',
+                    ha='left',
+                    fontsize=8,
+                    fontfamily='SimHei')
+        # Embed canvas
+        self._embed_canvas(fig, v_policy=QSizePolicy.Expanding)
+
+    def _plot_pie_chart(self, display_data, labels, title):
+        """饼状图绘制逻辑（新增方法）"""
+        fig = Figure(figsize=(8, 6), dpi=100)
+        self.figure_pool.append(fig)
+        ax = fig.add_subplot(111)
+
+        # 自动颜色生成
+        colors = plt.get_cmap('tab20c')(np.linspace(0, 1, len(labels)))
+
+        # 核心绘图参数（参考网页1、4、5）
+        wedges, texts, autotexts = ax.pie(
+            display_data,
+            labels=labels,
+            autopct=lambda pct: f'{pct:.1f}%\n({int(pct * sum(display_data) / 100):,}B)',
+            startangle=140,
+            colors=colors,
+            wedgeprops=dict(width=0.3, edgecolor='w'),
+            textprops={'fontsize': 8, 'fontfamily': 'SimHei'}
+        )
+
+        # 样式优化（参考网页5、8）
+        ax.set_title(title, fontsize=12, pad=20, fontfamily='SimHei')
+        ax.axis('equal')
+
+        # 图例显示优化
+        legend = ax.legend(
+            wedges,
+            labels,
+            title="Types",
+            loc="center left",
+            bbox_to_anchor=(1, 0, 0.5, 1),
+            prop={'family': 'SimHei', 'size': 8}
+        )
+        legend.get_title().set_fontproperties({'family': 'SimHei', 'size': 10})
+
+        self._embed_canvas(fig, v_policy=QSizePolicy.Fixed)
+
+    def _data_analysis_file_size(self, df: pd.DataFrame):
+        # Filename validity check
+        df['Filename'] = df['Filename'].fillna('UNKNOWN')
+        invalid_names = df['Filename'].str.strip().eq('')
+        if invalid_names.any():
+            print(f"[Debug] Found {invalid_names.sum()} empty filenames")
+            df.loc[invalid_names, 'Filename'] = 'UNKNOWN'
+
+        # Group aggregation (simplified)
+        grouped = df.groupby('Filename')['Size'].sum()
+        if grouped.empty:
+            self._add_placeholder("No data after grouping (check filenames)")
+            return
+
+        # display_data = grouped.nlargest(15).sort_values(ascending=True)
+        display_data = grouped.sort_values(ascending=True)
+        print(f"[Debug] Grouping results:\n{display_data.head()}")
+
+        y_labels = display_data.index.astype(str)  # Explicitly get labels <-- Fix point
+
+        # Debug output
+        print(f"[Debug] File label samples: {y_labels[:3]}")
+
+        title = "File Size Distribution (Bytes)"
+
+        return display_data, y_labels, title
+
+    def _data_analysis_symbol(self, df: pd.DataFrame, limit: int = 150):
+        # Symbol distribution logic
+        if 'Symbol' not in df.columns:
+            raise KeyError('Symbol')
+
+        # Filter processing
+        filtered = df[['Symbol', 'Size']].nlargest(limit, 'Size')
+        # filtered = df[['Symbol', 'Size']]
+        sorted_data = filtered.sort_values('Size', ascending=True)
+
+        # Format conversion
+        display_data = sorted_data.set_index('Symbol')['Size']
+        y_labels = display_data.index.astype(str)
+        title = f"TOP {limit} Symbol Size Distribution (Bytes)"
+
+        return display_data, y_labels, title
+
+    def _data_analysis_symbol_type(self, df: pd.DataFrame):
+        """按Type分类统计（新增核心方法）"""
+        if 'Type' not in df.columns:
+            raise KeyError('Type field not found')
+
+        # 数据预处理
+        df['Type'] = df['Type'].fillna('UNKNOWN').str.strip()
+        df.loc[df['Type'] == '', 'Type'] = 'UNKNOWN'
+
+        # 按Type聚合
+        grouped = df.groupby('Type')['Size'].sum()
+        if grouped.empty:
+            return pd.Series(dtype=float), [], "Type Distribution"
+
+        # 过滤过小项（优化显示）
+        threshold = grouped.sum() * 0.01  # 小于1%的合并为Other
+        main_types = grouped[grouped >= threshold]
+        other_size = grouped[grouped < threshold].sum()
+
+        if not main_types.empty and other_size > 0:
+            main_types['Other'] = other_size
+
+        display_data = main_types.sort_values(ascending=False)
+        return display_data, display_data.index.tolist(), "Type Size Distribution"
 
     # 动态计算高度（按标签密度）
     def _calculate_fig_height(self, labels, font_size=8, dpi=100):
@@ -605,26 +685,6 @@ class StatisticsView(QScrollArea):
             'file_size': '#1f77b4',  # Steel blue
             'symbols': '#2ca02c'  # Forest green
         }.get(chart_type, '#444444')
-
-    def _get_figsize(self, chart_type, data):
-        """Dynamically calculate canvas dimensions"""
-        base_sizes = {
-            'file_size': (10, max(6, len(data) * 0.4)),
-            'symbols': (12, 16)
-        }
-        return base_sizes[chart_type]
-
-    def _generate_charts(self):
-        """Generate charts directly in main thread"""
-        try:
-            self._clear_charts()
-            self._create_file_size_chart()
-            self._create_top_symbols_chart()
-            # Force layout update
-            self.container.updateGeometry()
-            QApplication.sendPostedEvents()  # Process event queue immediately
-        except Exception as e:
-            print(f"Chart generation failed: {str(e)}")
 
     def _show_loading(self):
         """Show loading dialog"""
@@ -649,91 +709,6 @@ class StatisticsView(QScrollArea):
             fig.clf()
             plt.close(fig)
         self.figure_pool.clear()
-
-    def _create_file_size_chart(self):
-        """Generate file size distribution chart"""
-        # Data validation
-        if self.df.empty or 'Size' not in self.df.columns:
-            self._add_placeholder("No valid size data")
-            return
-
-        self.df['Size'] = pd.to_numeric(self.df['Size'], errors='coerce')
-        self.df = self.df.dropna(subset=['Size'])
-
-        # Data processing
-        file_sizes = self.df.groupby('Filename')['Size'].sum().nlargest(15)
-
-        # Create canvas
-        fig = Figure(figsize=(10, max(6, len(file_sizes) * 0.4)), dpi=100)
-        self.figure_pool.append(fig)
-        ax = fig.add_subplot(111)
-        # Add font specification for Chinese text rendering
-        ax.set_title('File Size Distribution (Bytes)', fontname='SimHei', fontsize=12)
-
-        if file_sizes.empty:
-            self._add_placeholder("No valid file data", fig)
-            return
-
-        # Plot bars
-        max_width = file_sizes.max()
-        ax.set_xlim(right=max_width * 1.15)
-        bars = ax.barh(file_sizes.index.astype(str), file_sizes.values, color='#1f77b4')
-
-        # Style configuration
-        ax.set_title('Top 15 File Size Distribution (Bytes)', fontsize=12, pad=15)
-        ax.set_xlabel('Occupied Space', fontsize=10)
-        ax.grid(axis='x', linestyle='--', alpha=0.6)
-
-        # Add data labels
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(
-                width + max_width * 0.02,
-                bar.get_y() + bar.get_height() / 2,
-                f'{width:,}',
-                va='center',
-                fontsize=8,
-                ha='left'
-            )
-
-        self._embed_canvas(fig, v_policy=QSizePolicy.Preferred)
-
-    def _create_top_symbols_chart(self):
-        """Generate Top symbols pie chart"""
-        # Data validation
-        if self.df.empty or 'Type' not in self.df.columns:
-            self._add_placeholder("No symbol type data")
-            return
-
-        # Data processing
-        type_counts = self.df['Type'].value_counts().nlargest(5)
-
-        if type_counts.empty:
-            self._add_placeholder("符号类型数据不足")
-            return
-
-        # 创建画布
-        fig = Figure(figsize=(8, max(5, len(type_counts) * 0.8)), dpi=100)
-        self.figure_pool.append(fig)
-        ax = fig.add_subplot(111)
-
-        # 绘制饼图
-        wedges, texts, autotexts = ax.pie(
-            type_counts,
-            labels=type_counts.index,
-            autopct=lambda p: f'{p:.1f}%\n({int(p * sum(type_counts) / 100):,})',
-            startangle=90,
-            wedgeprops=dict(width=0.3, edgecolor='w'),
-            textprops={'fontsize': 8}
-        )
-
-        # 样式调整
-        ax.set_title('符号类型占比分布', fontsize=12, pad=15)
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_weight('bold')
-
-        self._embed_canvas(fig)
 
     def _embed_canvas(self, fig, v_policy=QSizePolicy.Fixed):
         """通用画布嵌入方法"""
