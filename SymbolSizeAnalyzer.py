@@ -1,34 +1,29 @@
+import re
 import csv
+import sys
+import tempfile
+import subprocess
 import traceback
-from errno import EACCES
-
 import numpy as np
 import pandas as pd
-import re
-import seaborn as sns
-from textwrap import shorten
 
 import matplotlib as mpl
 
 mpl.use('Qt5Agg')
+mpl.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei']  # 多个中文字体备选
+mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
-import sys
-import tempfile
-import subprocess
-
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from PyQt5.QtCore import QSettings, Qt
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QTabWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QPushButton, QFileDialog, QFrame, QTableView,
                              QWidget, QScrollArea, QSizePolicy, QProgressDialog,
                              QDialog, QCheckBox, QDialogButtonBox)
-from PyQt5.QtCore import QSettings, Qt, pyqtSignal, QThread
-from PyQt5.QtGui import QStandardItemModel, QStandardItem
 
-mpl.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei']  # 多个中文字体备选
-mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
 print(plt.style.available)
 plt.style.use('seaborn-v0_8')
@@ -211,7 +206,7 @@ def plot_nm_output(output_file: str):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.df = None  # 存储分析结果
+        self.df = None
         self.df_filtered = None
         self.symbol_list = list(symbol_type_map.keys())
 
@@ -227,7 +222,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle('Binary symbol analyzer')
+        self.setWindowTitle('Symbol Size Analyzer - By Sleepy - v0.1')
         self.setGeometry(200, 200, 1280, 720)
 
         # 主布局
@@ -654,33 +649,24 @@ class StatisticsView(QScrollArea):
             if self.df.empty:
                 self._add_placeholder("Empty data")
                 return
-            try:
-                if chart_type == 'file_size':
-                    display_data, y_labels, title = self._data_analysis_file_size(self.df)
-                    self._plot_column_chart(display_data, y_labels, title, chart_type)
-                elif chart_type == 'symbols':
-                    display_data, y_labels, title = self._data_analysis_symbol(self.df)
-                    self._plot_column_chart(display_data, y_labels, title, chart_type)
-                elif chart_type == 'type':
-                    display_data, labels, title = self._data_analysis_symbol_type(self.df)
 
-                    # Extra operation for column chart.
-                    display_data_col = display_data.sort_values(ascending=True)
-                    labels_col = display_data_col.index.tolist()
-                    self._plot_column_chart(display_data_col, labels_col, title, 'type')
+            if chart_type == 'file_size':
+                display_data, y_labels, title = self._data_analysis_file_size(self.df)
+                self._plot_column_chart(display_data, y_labels, title, chart_type)
+            elif chart_type == 'symbols':
+                display_data, y_labels, title = self._data_analysis_symbol(self.df)
+                self._plot_column_chart(display_data, y_labels, title, chart_type)
+            elif chart_type == 'type':
+                display_data, labels, title = self._data_analysis_symbol_type(self.df)
 
-                    self._plot_pie_chart(display_data, labels, title)
-                else:
-                    raise ValueError(f"Unknown chart type: {chart_type}")
-            except Exception as e:
-                self._add_placeholder(f"Aggregation failed: {str(e)}")
-                return
+                # Extra operation for column chart.
+                display_data_col = display_data.sort_values(ascending=True)
+                labels_col = display_data_col.index.tolist()
+                self._plot_column_chart(display_data_col, labels_col, title, 'type')
 
-            # if display_data.empty:
-            #     self._add_placeholder("No valid data to display")
-            #     return
-            #
-            # plot(*params)
+                self._plot_pie_chart(display_data, labels, title)
+            else:
+                raise ValueError(f"Unknown chart type: {chart_type}")
 
         except KeyError as ke:
             self._add_placeholder(f"Missing required field: {str(ke)}")
@@ -688,7 +674,6 @@ class StatisticsView(QScrollArea):
             self._add_placeholder(f"Data format error: {str(ve)}")
         except Exception as e:
             self._add_placeholder(f"Rendering exception: {str(e)}")
-            import traceback
             traceback.print_exc()
 
     def _plot_column_chart(self, display_data, y_labels, title, chart_type):
@@ -826,16 +811,16 @@ class StatisticsView(QScrollArea):
             main_types['Other'] = other_size
 
         display_data = main_types.sort_values(ascending=False)
-        return display_data, display_data.index.tolist(), "Type Size Distribution"
+        return display_data, display_data.index.tolist(), "Symbol Type Size Distribution"
 
     # 动态计算高度（按标签密度）
     def _calculate_fig_height(self, labels, font_size=8, dpi=100):
-        # 每个标签需要约40像素（0.4英寸*100dpi）
+        # Each label needs to be about 40 pixels (0.4 inches * 100 dpi)
         base_height_inch = len(labels) * 0.4
-        # 兼容高DPI屏幕（如缩放200%则自动翻倍）
+        # Compatible with high DPI screens (automatically doubles when zoomed in 200%)
         screen_dpi = self.screen().logicalDotsPerInch()
         scaled_height = base_height_inch * (screen_dpi / 100)
-        return max(6, scaled_height)  # 最低保障6英寸
+        return max(8, scaled_height)
 
     def _get_chart_color(self, chart_type):
         """Color mapping for visualization elements"""
@@ -877,24 +862,24 @@ class StatisticsView(QScrollArea):
     def _embed_canvas(self, fig, v_policy=QSizePolicy.Fixed):
         """通用画布嵌入方法"""
         canvas = FigureCanvas(fig)
-        print("[DEBUG] 原始尺寸:", fig.get_size_inches())  # 输出(12,6)
-        print("[DEBUG] DPI设置:", fig.dpi)  # 输出100
-        print("[DEBUG] Qt建议尺寸:", canvas.sizeHint())  # 应显示1200x600
-        print("[DEBUG] 屏幕DPI:", canvas.screen().logicalDotsPerInch())
+        print("[DEBUG] Original size:", fig.get_size_inches())
+        print("[DEBUG] DPI setting:", fig.dpi)
+        print("[DEBUG] Qt recommended size:", canvas.sizeHint())
+        print("[DEBUG] Screen DPI:", canvas.screen().logicalDotsPerInch())
 
         canvas.setSizePolicy(QSizePolicy.Expanding, v_policy)
-        print("[DEBUG] 实际渲染尺寸:", canvas.size().height())  # 检查实际值
+        print("[DEBUG] Actual rendering size:", canvas.size().height())
 
         self.layout.addWidget(canvas)
         canvas.draw_idle()
-        print(f"布局项数量: {self.layout.count()}")  # 验证控件添加
+        print(f"Number of layout items: {self.layout.count()}")
 
         fig.subplots_adjust(
-            left=0.4,  # 增加左边距（给长标签留空间）
-            right=0.95,  # 减小右边距
-            top=0.92,  # 上边距微调
-            bottom=0.08,  # 下边距增加
-            hspace=0.4  # 子图纵向间距
+            left=0.4,       # Increase left margin (leave space for long labels)
+            right=0.95,     # Reduce right margin
+            top=0.92,       # Fine-tune top margin
+            bottom=0.08,    # Increase bottom margin
+            hspace=0.4      # Vertical spacing between sub-images
         )
 
     def _add_placeholder(self, text, fig=None):
@@ -915,8 +900,6 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
-    # QCoreApplication.setOrganizationName("SleepySoft")
-    # QCoreApplication.setApplicationName("BinarySizeAnalyzer")
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

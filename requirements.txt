@@ -1,0 +1,5 @@
+# 核心数据处理
+numpy
+pandas
+matplotlib
+pyqt5
