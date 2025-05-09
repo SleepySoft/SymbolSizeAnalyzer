@@ -1,3 +1,4 @@
+import csv
 import traceback
 from errno import EACCES
 
@@ -226,7 +227,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle('ELF符号空间分析工具')
+        self.setWindowTitle('Binary symbol analyzer')
         self.setGeometry(200, 200, 1280, 720)
 
         # 主布局
@@ -260,14 +261,15 @@ class MainWindow(QMainWindow):
         # Row 3: Option area
         row3 = QHBoxLayout()
         row3.addWidget(QPushButton('Symbol Type Filter', clicked=self.filter_symbol_type), 1)
+        row3.addWidget(QPushButton('Export Table', clicked=self.export_Table_content), 1)
         row3.addWidget(QLabel(), 99)
 
         # Tab区域
         self.tabs = QTabWidget()
         self.list_tab = SymbolListView()
         self.plot_tab = StatisticsView()
-        self.tabs.addTab(self.list_tab, "符号列表")
-        self.tabs.addTab(self.plot_tab, "统计分析")
+        self.tabs.addTab(self.list_tab, "Symbol List")
+        self.tabs.addTab(self.plot_tab, "Symbol Statistics")
 
         # 组装布局
         main_layout.addLayout(row1)
@@ -279,9 +281,9 @@ class MainWindow(QMainWindow):
     def select_nm(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择nm工具",
+            "Select nm",
             self.nm_combo.currentText(),  # 从当前路径开始浏览
-            "可执行文件 (nm* arm-none-eabi-nm* *.exe);;所有文件 (*)"
+            "Runnable (nm* arm-none-eabi-nm* *.exe);;All Files (*)"
         )
         if path:
             # 转换Windows路径分隔符
@@ -290,9 +292,9 @@ class MainWindow(QMainWindow):
     def select_elf(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择目标文件",
+            "Select binary",
             self.elf_combo.currentText(),
-            "二进制文件 (*.elf *.a *.so *.o);;所有文件 (*)"
+            "Binary (*.elf *.a *.so *.o);;All Files (*)"
         )
         if path:
             # 处理带空格的路径
@@ -303,7 +305,7 @@ class MainWindow(QMainWindow):
         elf_path = self.elf_combo.currentText().strip()
 
         if not nm_path or not elf_path:
-            self.statusBar().showMessage("请先选择nm路径和目标文件", 5000)
+            self.statusBar().showMessage("Please select nm path and target file first", 5000)
             return
 
         try:
@@ -339,6 +341,9 @@ class MainWindow(QMainWindow):
             self.symbol_list = selected
             self.df_filtered = self.df[self.df['Type'].isin(self.symbol_list)].copy()
             self.update_view()
+
+    def export_Table_content(self):
+        self.list_tab.export_to_csv()
 
     def update_view(self):
         self.list_tab.update_data(self.df_filtered)
@@ -504,20 +509,50 @@ class SymbolListView(QWidget):
 
     def update_data(self, df):
         model = QStandardItemModel()
-        model.setHorizontalHeaderLabels(['文件名', '地址', '大小', '类型', '符号'])
+        model.setHorizontalHeaderLabels(['File', 'Address', 'Size', 'Type', 'Symbol'])
 
         for _, row in df.iterrows():
+            size_item = QStandardItem()
+            size_item.setData(row['Size'], Qt.DisplayRole)  # 以数字类型存储
+
             items = [
                 QStandardItem(row['Filename']),
                 QStandardItem(row['Address']),
-                QStandardItem(str(row['Size'])),
+                size_item,
                 QStandardItem(row['Type']),
                 QStandardItem(row['Symbol'])
             ]
             model.appendRow(items)
 
         self.table.setModel(model)
+        self.table.setSortingEnabled(True)
         self.table.resizeColumnsToContents()
+
+    def export_to_csv(self):
+        model = self.table.model()
+        if model.rowCount() == 0:
+            return
+
+        # 弹出文件保存对话框
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "保存 CSV 文件", "", "CSV 文件 (*.csv)"
+        )
+        if not filename:
+            return
+
+        # 写入 CSV
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            # 写入表头
+            header = [model.headerData(i, Qt.Horizontal) for i in range(model.columnCount())]
+            writer.writerow(header)
+            # 写入数据行
+            for row in range(model.rowCount()):
+                row_data = []
+                for col in range(model.columnCount()):
+                    item = model.item(row, col)
+                    row_data.append(item.text() if item else "")
+                writer.writerow(row_data)
 
 
 class StatisticsView(QScrollArea):
@@ -590,8 +625,8 @@ class StatisticsView(QScrollArea):
     def _pre_process_data(self, df: pd.DataFrame):
         try:
             # Type conversion (safe mode)
-            self.df['Size'] = pd.to_numeric(self.df['Size'], errors='coerce')
-            valid_df = self.df.dropna(subset=['Size']).copy()
+            df['Size'] = pd.to_numeric(df['Size'], errors='coerce')
+            valid_df = df.dropna(subset=['Size']).copy()
 
             # Debug output
             print(f"[Debug] Valid data count after preprocessing: {len(valid_df)}")
@@ -605,8 +640,6 @@ class StatisticsView(QScrollArea):
     def _async_generate_charts(self):
         QApplication.processEvents()
         self._clear_charts()
-
-        # self._create_dynamic_chart('symbols')
 
         if self.chart_type in ('file_size', 'both'):
             self._create_dynamic_chart('file_size')
