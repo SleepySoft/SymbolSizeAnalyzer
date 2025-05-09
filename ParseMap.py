@@ -258,8 +258,9 @@ class MainWindow(QMainWindow):
         self.elf_combo.load_history()
 
         # Row 3: Option area
-        row2 = QHBoxLayout()
-        row2.addWidget(QPushButton('Symbol Type Filter', clicked=self.filter_symbol_type))
+        row3 = QHBoxLayout()
+        row3.addWidget(QPushButton('Symbol Type Filter', clicked=self.filter_symbol_type), 1)
+        row3.addWidget(QLabel(), 99)
 
         # Tab区域
         self.tabs = QTabWidget()
@@ -271,6 +272,7 @@ class MainWindow(QMainWindow):
         # 组装布局
         main_layout.addLayout(row1)
         main_layout.addLayout(row2)
+        main_layout.addLayout(row3)
         main_layout.addWidget(QFrame(frameShape=QFrame.HLine))
         main_layout.addWidget(self.tabs, stretch=1)
 
@@ -335,6 +337,8 @@ class MainWindow(QMainWindow):
 
         if selected:
             self.symbol_list = selected
+            self.df_filtered = self.df[self.df['Type'].isin(self.symbol_list)].copy()
+            self.update_view()
 
     def update_view(self):
         self.list_tab.update_data(self.df_filtered)
