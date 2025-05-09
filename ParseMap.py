@@ -18,9 +18,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import sys
 import tempfile
 import subprocess
-from PyQt5.QtWidgets import (QMainWindow, QApplication, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
+
+from PyQt5.QtWidgets import (QMainWindow, QApplication, QTabWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QPushButton, QFileDialog, QFrame, QTableView,
-                             QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QProgressDialog)
+                             QWidget, QScrollArea, QSizePolicy, QProgressDialog,
+                             QDialog, QCheckBox, QDialogButtonBox)
 from PyQt5.QtCore import QSettings, Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 
@@ -32,47 +34,51 @@ plt.style.use('seaborn-v0_8')
 
 
 symbol_type_map = {
-    # 代码段符号
-    'T': 'Global text symbol (executable code)',
-    't': 'Local text symbol (executable code)',
+    # === Code Section Symbols ===
+    'T': 'Global text symbol [.text]',
+    't': 'Local text symbol [.text]',
 
-    # 数据段符号
-    'D': 'Global initialized data',
-    'd': 'Local initialized data',
-    'B': 'Global uninitialized data (BSS)',
-    'b': 'Local uninitialized data (BSS)',
+    # === Data Section Symbols ===
+    'D': 'Global initialized data [.data]',
+    'd': 'Local initialized data [.data]',
+    'B': 'Global uninitialized data [.bss]',
+    'b': 'Local uninitialized data [.bss]',
 
-    # 只读数据
-    'R': 'Global read-only data',
-    'r': 'Local read-only data',
+    # === Read-Only Data ===
+    'R': 'Global read-only data [.rodata]',
+    'r': 'Local read-only data [.rodata]',
 
-    # 特殊类型
-    'U': 'Undefined symbol',
-    'V': 'Global weak object symbol',
-    'W': 'Global weak symbol (not tagged as object)',
-    'w': 'Local weak symbol',
+    # === Special Types ===
+    'U': 'Undefined symbol [NO SECTION]',
+    'V': 'Global weak object symbol [.data/.bss]',
+    'W': 'Global weak symbol [.dynsym]',
+    'w': 'Local weak symbol [.dynsym]',
 
-    # 其他类型
-    'C': 'Common symbol',
-    'A': 'Absolute symbol',
-    'S': 'Global small object',
-    's': 'Local small object',
-    'G': 'Global optimized/grouped data',
-    'g': 'Local optimized/grouped data',
-    'N': 'Debugging symbol (noreturn)',
+    # === Optimization Sections ===
+    'S': 'Global small object [.sdata]',
+    's': 'Local small object [.sbss]',
+    'G': 'Global optimized data [.sdata/.data.gnu]',
+    'g': 'Local optimized data [.sbss/.bss.gnu]',
 
-    # 特殊场景
-    'I': 'Indirect symbol (PLT entry)',
-    'i': 'Local indirect symbol',
-    'P': 'Global procedure linkage table',
-    'p': 'Local procedure linkage table',
-    'F': 'Global file symbol',
-    'f': 'Local file symbol',
+    # === Linker & Debug ===
+    'C': 'Common symbol [COMMON]',
+    'A': 'Absolute symbol [NO SECTION]',
+    'N': 'Debugging symbol [.debug]',
 
-    # 废弃类型（部分旧系统）
-    '?': 'Unknown symbol type',
-    'Z': 'Global zero-initialized (HP-UX)',
-    'z': 'Local zero-initialized (HP-UX)'
+    # === Dynamic Linking ===
+    'I': 'Indirect symbol [.plt]',
+    'i': 'Local indirect symbol [.plt]',
+    'P': 'Global PLT entry [.got.plt]',
+    'p': 'Local PLT entry [.got.plt]',
+
+    # === File Metadata ===
+    'F': 'Global file symbol [NO SECTION]',
+    'f': 'Local file symbol [NO SECTION]',
+
+    # === Legacy/System-Specific ===
+    'Z': 'Global zero-init [.zbss] (HP-UX)',
+    'z': 'Local zero-init [.zbss] (HP-UX)',
+    '?': 'Unknown type [NO SECTION]'
 }
 
 
@@ -204,12 +210,20 @@ def plot_nm_output(output_file: str):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.init_ui()
         self.df = None  # 存储分析结果
+        self.df_filtered = None
+        self.symbol_list = list(symbol_type_map.keys())
 
-        # 加载历史记录
-        self.nm_combo.load_history()
-        self.elf_combo.load_history()
+        self.plot_tab = None
+        self.list_tab = None
+        self.tabs = None
+
+        self.sym_type_btn = None
+        self.analyze_btn = None
+        self.nm_combo = None
+        self.elf_combo = None
+
+        self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle('ELF符号空间分析工具')
@@ -223,22 +237,29 @@ class MainWindow(QMainWindow):
 
         # 第一行：nm路径选择
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("nm路径:"), 1)
+        row1.addWidget(QLabel("nm:"), 1)
         self.nm_combo = HistoryComboBox('SleepySoft', 'ParseMap', 'nm')
         self.nm_combo.setEditable(True)
-        self.nm_combo.setToolTip("选择nm工具路径\n示例：C:/NXP/.../arm-none-eabi-nm")
+        self.nm_combo.setToolTip("Select nm path\nExample：C:/NXP/.../arm-none-eabi-nm")
         row1.addWidget(self.nm_combo, 8)
-        row1.addWidget(QPushButton("浏览", clicked=self.select_nm), 1)
+        row1.addWidget(QPushButton("Browse", clicked=self.select_nm), 1)
 
         # 第二行：ELF文件选择
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("目标文件:"), 1)
+        row2.addWidget(QLabel("Binary:"), 1)
         self.elf_combo = HistoryComboBox('SleepySoft', 'ParseMap', 'binary')
-        self.elf_combo.setToolTip("选择要分析的ELF文件或库文件")
+        self.elf_combo.setToolTip("Select ELF or library for analysis.")
         row2.addWidget(self.elf_combo, 7)
-        row2.addWidget(QPushButton("浏览", clicked=self.select_elf), 1)
-        self.analyze_btn = QPushButton("分析", clicked=self.start_analysis)
+        row2.addWidget(QPushButton("Browse", clicked=self.select_elf), 1)
+        self.analyze_btn = QPushButton("Analysis", clicked=self.start_analysis)
         row2.addWidget(self.analyze_btn, 1)
+
+        self.nm_combo.load_history()
+        self.elf_combo.load_history()
+
+        # Row 3: Option area
+        row2 = QHBoxLayout()
+        row2.addWidget(QPushButton('Symbol Type Filter', clicked=self.filter_symbol_type))
 
         # Tab区域
         self.tabs = QTabWidget()
@@ -293,10 +314,9 @@ class MainWindow(QMainWindow):
                 tmp.write(result.stdout)
                 tmp.seek(0)
                 self.df = parse_nm_output(tmp.name)
+                self.df_filtered = self.df
 
-            # 更新视图
-            self.list_tab.update_data(self.df)
-            self.plot_tab.update_data(self.df)
+            self.update_view()
             self.statusBar().showMessage(f"分析完成，共找到 {len(self.df)} 个符号", 5000)
 
         except subprocess.CalledProcessError as e:
@@ -306,8 +326,105 @@ class MainWindow(QMainWindow):
             print(str(e))
             self.statusBar().showMessage(f"分析错误: {str(e)}", 10000)
 
+    def filter_symbol_type(self):
+        selected, ok = SymbolSelector.get_symbols(
+            symbol_map=symbol_type_map,
+            initial_selection=self.symbol_list,
+            parent=self
+        )
 
-from PyQt5.QtCore import QSettings, QStandardPaths
+        if selected:
+            self.symbol_list = selected
+
+    def update_view(self):
+        self.list_tab.update_data(self.df_filtered)
+        self.plot_tab.update_data(self.df_filtered)
+
+
+class SymbolSelector(QDialog):
+    def __init__(self, symbol_map, selected_symbols, parent=None):
+        super().__init__(parent)
+        self.select_all_cb = None
+        self.symbol_map = symbol_map
+        self.initial_selection = set(selected_symbols)
+        self.checkboxes = {}
+        self.init_ui()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(15, 10, 15, 10)
+        main_layout.setSpacing(8)
+
+        self.select_all_cb = QCheckBox("Select All", self)
+        self.select_all_cb.setTristate(True)
+        self.select_all_cb.stateChanged.connect(self.on_select_all_changed)
+        main_layout.addWidget(self.select_all_cb)
+
+        # 创建符号复选框
+        for symbol, desc in self.symbol_map.items():
+            cb = QCheckBox(f"{symbol} - {desc}", self)
+            cb.setChecked(symbol in self.initial_selection)
+            cb.stateChanged.connect(self.update_select_all_state)
+
+            self.checkboxes[symbol] = cb
+            main_layout.addWidget(cb)
+
+        # 添加操作按钮
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            Qt.Horizontal, self
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        main_layout.addWidget(button_box)
+
+        self.setLayout(main_layout)
+        self.setWindowTitle("Enhanced Symbol Selector")
+        self.resize(480, 360)
+        self.update_select_all_state()  # 初始化全选状态 [2](@ref)
+
+    def on_select_all_changed(self, state):
+        for cb in self.checkboxes.values():
+            cb.blockSignals(True)
+
+        # 设置所有子复选框状态 [2](@ref)
+        if state == Qt.Checked:
+            for cb in self.checkboxes.values():
+                cb.setChecked(True)
+        elif state == Qt.Unchecked:
+            for cb in self.checkboxes.values():
+                cb.setChecked(False)
+
+        # 解除信号阻塞
+        for cb in self.checkboxes.values():
+            cb.blockSignals(False)
+
+    def update_select_all_state(self):
+        """更新全选复选框状态"""
+        checked_count = sum(1 for cb in self.checkboxes.values() if cb.isChecked())
+        total = len(self.checkboxes)
+
+        if checked_count == 0:
+            new_state = Qt.Unchecked
+        elif checked_count == total:
+            new_state = Qt.Checked
+        else:
+            new_state = Qt.PartiallyChecked
+
+        self.select_all_cb.blockSignals(True)
+        self.select_all_cb.setCheckState(new_state)
+        self.select_all_cb.blockSignals(False)
+
+    def get_selection(self):
+        """获取当前选中项"""
+        return [sym for sym, cb in self.checkboxes.items() if cb.isChecked()]
+
+    @classmethod
+    def get_symbols(cls, symbol_map, initial_selection, parent=None):
+        """执行对话框并返回结果"""
+        dialog = cls(symbol_map, initial_selection, parent)
+        result = dialog.exec_()
+        return dialog.get_selection(), result == QDialog.Accepted
 
 
 class HistoryComboBox(QComboBox):
