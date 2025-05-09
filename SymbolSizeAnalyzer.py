@@ -1,3 +1,4 @@
+import datetime
 import re
 import csv
 import sys
@@ -22,7 +23,7 @@ from PyQt5.QtCore import QSettings, Qt
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QTabWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QPushButton, QFileDialog, QFrame, QTableView,
                              QWidget, QScrollArea, QSizePolicy, QProgressDialog,
-                             QDialog, QCheckBox, QDialogButtonBox)
+                             QDialog, QCheckBox, QDialogButtonBox, QMessageBox)
 
 
 print(plt.style.available)
@@ -256,7 +257,8 @@ class MainWindow(QMainWindow):
         # Row 3: Option area
         row3 = QHBoxLayout()
         row3.addWidget(QPushButton('Symbol Type Filter', clicked=self.filter_symbol_type), 1)
-        row3.addWidget(QPushButton('Export Table', clicked=self.export_Table_content), 1)
+        row3.addWidget(QPushButton('Export Table', clicked=self.export_table_content), 1)
+        row3.addWidget(QPushButton('Export Chart', clicked=self.export_chart_diagram), 1)
         row3.addWidget(QLabel(), 99)
 
         # Tab区域
@@ -337,8 +339,11 @@ class MainWindow(QMainWindow):
             self.df_filtered = self.df[self.df['Type'].isin(self.symbol_list)].copy()
             self.update_view()
 
-    def export_Table_content(self):
+    def export_table_content(self):
         self.list_tab.export_to_csv()
+
+    def export_chart_diagram(self):
+        self.plot_tab.export_charts()
 
     def update_view(self):
         self.list_tab.update_data(self.df_filtered)
@@ -616,6 +621,72 @@ class StatisticsView(QScrollArea):
             print(traceback.format_exc())
         finally:
             self._hide_loading()
+
+    def export_charts(self):
+        try:
+            path, selected_filter = QFileDialog.getSaveFileName(
+                self, "Save Charts", "",
+                "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)"
+            )
+            if not path:
+                return
+
+            # 自动识别文件格式[6,7](@ref)
+            format_map = {
+                "png": "png",
+                "pdf": "pdf",
+                "svg": "svg"
+            }
+            file_ext = path.split('.')[-1].lower() if '.' in path else ""
+            format = format_map.get(file_ext, "png")  # 默认PNG格式
+
+            # 创建进度对话框
+            progress = QProgressDialog("Saving charts...", "Cancel", 0, len(self.figure_pool), self)
+            progress.setWindowModality(Qt.WindowModal)
+
+            for i, fig in enumerate(self.figure_pool):
+                if progress.wasCanceled():
+                    break
+
+                progress.setValue(i)
+                QApplication.processEvents()  # 保持UI响应
+
+                try:
+                    # 动态生成文件名
+                    filename = f"{path.rsplit('.', 1)[0]}_{i + 1}.{format}" if '.' in path else f"{path}_{i + 1}.{format}"
+
+                    fig.savefig(
+                        filename,
+                        format=format,
+                        dpi=300,
+                        bbox_inches="tight",
+                        transparent=True,
+                        metadata={
+                            'Creator': f"{self.__class__.__name__} Export",
+                            'CreationDate': datetime.datetime.now().isoformat()
+                        }
+                    )
+                except PermissionError as pe:
+                    QMessageBox.critical(self, "Permission Error",
+                                         f"Cannot write to {filename}:\n{str(pe)}\nCheck file permissions.")
+                    break
+                except IOError as ioe:
+                    QMessageBox.critical(self, "IO Error",
+                                         f"Failed to save {filename}:\n{str(ioe)}\nCheck disk space/path validity.")
+                    break
+                except Exception as e:
+                    QMessageBox.critical(self, "Unexpected Error",
+                                         f"Failed to save chart {i + 1}:\n{str(e)}")
+                    break
+
+            progress.close()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed",
+                                 f"Chart export aborted:\n{str(e)}")
+        finally:
+            if 'progress' in locals():
+                progress.close()
 
     def _pre_process_data(self, df: pd.DataFrame):
         try:
