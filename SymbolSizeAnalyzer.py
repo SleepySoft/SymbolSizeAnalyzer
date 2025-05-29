@@ -147,18 +147,25 @@ def symbol_diff(df_current, df_base):
         pd.DataFrame: Merged DataFrame with 'diff' column indicating size difference.
     """
     # Prepare df_base by keeping only 'Symbol' and 'Size' (renamed to 'Size_base')
-    df_base = df_base[['Symbol', 'Size']].copy()
+    df_base = df_base[['Symbol', 'Filename', 'Size']].copy()
     df_base.rename(columns={'Size': 'Size_base'}, inplace=True)
 
     # Perform outer join on 'Symbol'
-    merged_df = pd.merge(df_current, df_base, on='Symbol', how='outer')
+    merged_df = pd.merge(df_current, df_base, on=['Symbol', 'Filename'], how='outer')
+    merged_df = merged_df.reset_index()
 
-    # Fill missing sizes with 0 for both sides
+    # Fill missing sizes with 0 for both sides before calculating diff
     merged_df['Size'] = merged_df['Size'].fillna(0)
     merged_df['Size_base'] = merged_df['Size_base'].fillna(0)
 
     # Calculate the difference (right - left)
     merged_df['diff'] = merged_df['Size'] - merged_df['Size_base']
+
+    # Fill left-specific columns with '-' where missing (indicates symbols from base)
+    merged_df['Symbol'] = merged_df['Symbol'].fillna('-')
+    merged_df['Filename'] = merged_df['Filename'].fillna('-')
+    merged_df['Address'] = merged_df['Address'].fillna('-')
+    merged_df['Type'] = merged_df['Type'].fillna('-')
 
     return merged_df
 
