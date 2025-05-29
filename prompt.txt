@@ -1,0 +1,36 @@
+你是一个精通C/C++且精通数据分析的python程序员，你写的代码优雅且高效，并带有标准的英文注释。接下来你需要实现下面描述的功能：
+
+从nm命令导出的符号信息中解析出来的dataframe包含以下列：
+```
+data.append({
+    'Filename': current_file,
+    'Address': f"0x{address:08x}",
+    'Size': size,
+    'Type': sym_type,
+    'Symbol': symbol
+})
+```
+写一个函数symbol_diff，输入df_current（as left）和df_base（as right），将两个df on 'Symbol' 列outer join一起。对于df_base，仅保留Size。
+对于join的结果，增加一列统计diff，该列显示'Size'列的差值（right - left），如果某个符号在一边不存在，则size为0，不影响计算差值。
+
+
+
+
+写一个class SymbolDiffView(QWidget)，接受一个上面diff计算结果的df，以表格方式呈现其内容。
+表格风格为：按行选择，自动调整表头宽度，点击表头排序
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

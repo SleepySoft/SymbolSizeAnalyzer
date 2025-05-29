@@ -23,7 +23,8 @@ from PyQt5.QtCore import QSettings, Qt
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QTabWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QPushButton, QFileDialog, QFrame, QTableView,
                              QWidget, QScrollArea, QSizePolicy, QProgressDialog,
-                             QDialog, QCheckBox, QDialogButtonBox, QMessageBox)
+                             QDialog, QCheckBox, QDialogButtonBox, QMessageBox,
+                             QTableWidget, QTableWidgetItem, QHeaderView)
 
 
 print(plt.style.available)
@@ -126,6 +127,40 @@ def parse_nm_output(file_path):
                 print(f"无法解析的行: {line}")
 
     return pd.DataFrame(data)
+
+
+import pandas as pd
+
+
+def symbol_diff(df_current, df_base):
+    """
+    Compute the size difference between two DataFrames based on 'Symbol'.
+
+    Performs an outer join on 'Symbol', calculates the difference (right - left).
+    If a symbol is missing in one side, its size is considered 0.
+
+    Args:
+        df_current (pd.DataFrame): Left DataFrame with columns including 'Symbol' and 'Size'.
+        df_base (pd.DataFrame): Right DataFrame with columns including 'Symbol' and 'Size'.
+
+    Returns:
+        pd.DataFrame: Merged DataFrame with 'diff' column indicating size difference.
+    """
+    # Prepare df_base by keeping only 'Symbol' and 'Size' (renamed to 'Size_base')
+    df_base = df_base[['Symbol', 'Size']].copy()
+    df_base.rename(columns={'Size': 'Size_base'}, inplace=True)
+
+    # Perform outer join on 'Symbol'
+    merged_df = pd.merge(df_current, df_base, on='Symbol', how='outer')
+
+    # Fill missing sizes with 0 for both sides
+    merged_df['Size'] = merged_df['Size'].fillna(0)
+    merged_df['Size_base'] = merged_df['Size_base'].fillna(0)
+
+    # Calculate the difference (right - left)
+    merged_df['diff'] = merged_df['Size'] - merged_df['Size_base']
+
+    return merged_df
 
 
 def plot_file_sizes(df):
@@ -259,10 +294,13 @@ class MainWindow(QMainWindow):
         row3.addWidget(QPushButton('Symbol Type Filter', clicked=self.filter_symbol_type), 1)
         row3.addWidget(QPushButton('Export Table', clicked=self.export_table_content), 1)
         row3.addWidget(QPushButton('Export Chart', clicked=self.export_chart_diagram), 1)
+        row3.addWidget(QPushButton('Symbol Diff', clicked=self.show_symbol_diff), 1)
         row3.addWidget(QLabel(), 99)
 
         # Tab区域
         self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
         self.list_tab = SymbolListView()
         self.plot_tab = StatisticsView()
         self.tabs.addTab(self.list_tab, "Symbol List")
@@ -301,9 +339,15 @@ class MainWindow(QMainWindow):
         nm_path = self.nm_combo.currentText().strip()
         elf_path = self.elf_combo.currentText().strip()
 
+        df = self.do_symbol_analysis(nm_path, elf_path)
+        if df is not None:
+            self.df_filtered = self.df = df
+            self.update_view()
+
+    def do_symbol_analysis(self, nm_path: str, elf_path: str) -> pd.DataFrame or None:
         if not nm_path or not elf_path:
             self.statusBar().showMessage("Please select nm path and target file first", 5000)
-            return
+            return None
 
         try:
             # 执行nm命令
@@ -314,18 +358,19 @@ class MainWindow(QMainWindow):
             with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tmp:
                 tmp.write(result.stdout)
                 tmp.seek(0)
-                self.df = parse_nm_output(tmp.name)
-                self.df_filtered = self.df
-
-            self.update_view()
-            self.statusBar().showMessage(f"分析完成，共找到 {len(self.df)} 个符号", 5000)
-
+                df = parse_nm_output(tmp.name)
+            self.statusBar().showMessage(f"分析完成，共找到 {len(df)} 个符号", 5000)
+            return df
         except subprocess.CalledProcessError as e:
             print(str(e))
+            traceback.print_exc()
             self.statusBar().showMessage(f"命令执行失败: {e.stderr}", 10000)
+            return None
         except Exception as e:
             print(str(e))
+            traceback.print_exc()
             self.statusBar().showMessage(f"分析错误: {str(e)}", 10000)
+            return None
 
     def filter_symbol_type(self):
         selected, ok = SymbolSelector.get_symbols(
@@ -344,6 +389,31 @@ class MainWindow(QMainWindow):
 
     def export_chart_diagram(self):
         self.plot_tab.export_charts()
+
+    def show_symbol_diff(self):
+        if self.df is None:
+            QMessageBox.information(self, "Diff Error", "No Diff Base.\nPlease analysis one binary first.")
+            return
+
+        elf_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select compare binary",
+            "",
+            "Binary (*.elf *.a *.so *.o);;所有文件 (*)"
+        )
+
+        if elf_path:
+            nm_path = self.nm_combo.currentText().strip()
+            df = self.do_symbol_analysis(nm_path, elf_path)
+            if df is not None and not df.empty:
+                diff = symbol_diff(self.df, df)
+                diff_view = SymbolDiffView(diff, )
+                self.tabs.addTab(diff_view, "Symbol Diff ")
+
+    def close_tab(self, index):
+        sender_widget = self.sender()
+        if index > 1 and isinstance(sender_widget, QTabWidget):
+            sender_widget.removeTab(index)
 
     def update_view(self):
         self.list_tab.update_data(self.df_filtered)
@@ -965,6 +1035,49 @@ class StatisticsView(QScrollArea):
                 fontsize=12, color='gray')
         ax.axis('off')
         self._embed_canvas(fig)
+
+
+class SymbolDiffView(QWidget):
+    def __init__(self, diff_df, parent=None):
+        super().__init__(parent)
+        self.diff_df = diff_df  # 输入的差异计算结果DataFrame
+        self.init_ui()
+
+    def init_ui(self):
+        # 基础布局设置
+        self.setWindowTitle("Symbol Differences")
+        self.layout = QVBoxLayout(self)
+
+        # 创建表格控件
+        self.table = QTableWidget()
+        self.table.setRowCount(len(self.diff_df))
+        self.table.setColumnCount(len(self.diff_df.columns))
+
+        # 设置表头
+        self.table.setHorizontalHeaderLabels(self.diff_df.columns.tolist())
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)  # 自动调整列宽
+        self.table.horizontalHeader().setSortIndicatorShown(True)  # 显示排序箭头
+
+        # 填充数据
+        for row_idx, row_data in self.diff_df.iterrows():
+            for col_idx, col_name in enumerate(self.diff_df.columns):
+                cell_value = row_data[col_name]
+                item = QTableWidgetItem()
+
+                # 数值类型特殊处理（确保正确排序）
+                if isinstance(cell_value, (int, float)):
+                    item.setData(Qt.DisplayRole, cell_value)  # 设置数值类型数据
+                else:
+                    item.setText(str(cell_value))
+                self.table.setItem(row_idx, col_idx, item)
+
+        # 启用交互功能
+        self.table.setSortingEnabled(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        # 布局添加控件
+        self.layout.addWidget(self.table)
 
 
 if __name__ == '__main__':
