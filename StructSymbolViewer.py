@@ -1,16 +1,13 @@
 import re
-import traceback
-from typing import Optional
-
-import pandas as pd
-from PyQt5.QtWidgets import QSplitter
-from pycparser import c_parser, c_ast, c_generator
-
 import sys
+import traceback
+import pandas as pd
+from typing import Optional
+from pycparser import c_parser, c_ast
+
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLineEdit, QPushButton, QPlainTextEdit, QSizePolicy, QFileDialog, QTableView,
-    QTreeWidget, QTreeWidgetItem
+    QLineEdit, QPushButton, QPlainTextEdit, QFileDialog, QTreeWidget, QTreeWidgetItem
 )
 from PyQt5.QtCore import QSettings, Qt, QAbstractTableModel
 
@@ -468,73 +465,6 @@ class AdiXmlMapFileParser:
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-
-# def verify_struct_layout_calc():
-#     # 示例结构体定义
-#     defines = """
-#     typedef signed char int8_T;
-#     typedef unsigned char uint8_T;
-#     typedef short int16_T;
-#     typedef unsigned short uint16_T;
-#     typedef int int32_T;
-#     typedef unsigned int uint32_T;
-#     typedef float real32_T;
-#     typedef double real64_T;
-#
-#     typedef double real_T;
-#     typedef double time_T;
-#     typedef unsigned char boolean_T;
-#     typedef int int_T;
-#     typedef unsigned int uint_T;
-#     typedef unsigned long ulong_T;
-#     typedef char char_T;
-#     typedef unsigned char uchar_T;
-#     typedef char_T byte_T;
-#     """
-#     code = """
-#     typedef struct Omega_Target_PostProcess0_tag
-#     {
-#         int32_T output_router_EnableAux;
-#         int32_T output_router_MainSelect[22];
-#         real32_T AllMuteRampTime;
-#         real32_T AuxSelectMap[22];
-#         // ... 其他成员
-#     } Omega_Target_PostProcess0_type;
-#
-#
-#     typedef struct Omega_Target_PreAmp0_tag
-#     {
-#         int32_T LevelDetectMusicDelaySamples;
-#         int32_T MedusaAlignmentDelay;
-#         int32_T MedusaBassDelayDec;
-#         int32_T MedusaBassDelayFull;
-#         int32_T MedusaMonoDetectorEnable;
-#         int32_T MedusaTrebleDelay;
-#         int32_T audiopilot_HfNoiseRefLatencySamples;
-#         int32_T audiopilot_LfNoiseRefLatencySamples;
-#         int32_T audiopilot_MidrangeLpfAlignDelaySamples;
-#     };
-#     """
-#
-#     # 创建计算器
-#     calculator = StructLayoutCalculator()
-#
-#     # 获取结构体布局
-#     layouts, undefined = calculator.get_layout(defines + code)
-#
-#     # 打印结果
-#     for struct_name, members in layouts.items():
-#         print(f"结构体: {struct_name}")
-#         print("总大小:", layouts[struct_name].get('size', '未知'))
-#         for member, (offset, size) in members.items():
-#             print(f"  {member}: 偏移={offset}, 大小={size}")
-#         print()
-#
-#     # 处理未定义符号
-#     if undefined:
-#         print("未定义符号:", ", ".join(undefined))
-#         print("请补充这些类型的定义")
-
 
 def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: AdiXmlMapFileParser):
 
