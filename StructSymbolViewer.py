@@ -9,9 +9,10 @@ from pycparser import c_parser, c_ast, c_generator
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLineEdit, QPushButton, QPlainTextEdit, QSizePolicy, QFileDialog
+    QLineEdit, QPushButton, QPlainTextEdit, QSizePolicy, QFileDialog, QTableView,
+    QTreeWidget, QTreeWidgetItem
 )
-from PyQt5.QtCore import QSettings, Qt
+from PyQt5.QtCore import QSettings, Qt, QAbstractTableModel
 
 
 class CGrammarParser:
@@ -578,6 +579,74 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
         }).reset_index()
 
 
+class PandasModel(QAbstractTableModel):
+    def __init__(self, data):
+        super().__init__()
+        self._data = data
+
+    def rowCount(self, parent=None):
+        return self._data.shape[0]
+
+    def columnCount(self, parent=None):
+        return self._data.shape[1]
+
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole and index.isValid():
+            return str(self._data.iloc[index.row(), index.column()])
+        return None
+
+    def headerData(self, section, orientation, role):
+        if role == Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                return str(self._data.columns[section])
+            else:
+                return str(self._data.index[section])
+        return None
+
+
+def display_dataframe_as_table(table_view, dataframe):
+    """
+    在PyQt5表格中显示DataFrame内容（自动清空原有数据）
+
+    参数:
+        table_view (QTableView): 要显示数据的表格视图对象
+        dataframe (pd.DataFrame): 要显示的Pandas DataFrame
+    """
+    # 清空表格现有内容（通过重置模型实现）
+    table_view.setModel(None)
+
+    # 创建自定义模型并设置到表格视图
+    model = PandasModel(dataframe)
+    table_view.setModel(model)
+
+    # 自动调整列宽适应内容
+    table_view.resizeColumnsToContents()
+
+    # 可选：设置交替行颜色增强可读性
+    table_view.setAlternatingRowColors(True)
+
+
+def display_dataframe_as_tree_list(tree: QTreeWidget, df: pd.DataFrame, group_by_column: str, display_column: [str]):
+    # 设置列标题（分组列 + 展示列）
+    headers = [group_by_column] + display_column
+    tree.setHeaderLabels(headers)
+    tree.setColumnCount(len(headers))
+
+    # 按分组列聚合数据
+    grouped = df.groupby(group_by_column)
+    for group_name, group_df in grouped:
+        # 创建分组根节点
+        root_item = QTreeWidgetItem(tree)
+        root_item.setText(0, str(group_name))  # 分组列显示在首列
+
+        # 添加子节点（每组内的数据行）
+        for _, row in group_df.iterrows():
+            child = QTreeWidgetItem(root_item)
+            for col_idx, col in enumerate(display_column, start=1):  # 从第2列开始填充
+                child.setText(col_idx, str(row[col]))
+    tree.expandAll()
+
+
 class StructLayoutAnalyzerUI(QWidget):
     def __init__(self):
         super().__init__()
@@ -585,6 +654,8 @@ class StructLayoutAnalyzerUI(QWidget):
         self.map_edit = None
         self.input_text: Optional[QPlainTextEdit] = None
         self.result_text: Optional[QPlainTextEdit] = None
+        # self.result_table: Optional[QTableView] = None
+        self.result_tree: Optional[QTreeWidget] = None
         self.df_analysis = pd.DataFrame()
         self.df_display = pd.DataFrame()
         self.injection = None                   # Injection to change UI behaviour
@@ -638,9 +709,14 @@ class StructLayoutAnalyzerUI(QWidget):
         self.result_text.setReadOnly(True)
         self.result_text.setPlaceholderText("Analysis results will appear here...")
 
+        # self.result_table = QTableView()
+        self.result_tree = QTreeWidget()
+
         text_area_layout = QSplitter()
         text_area_layout.addWidget(self.input_text)
         text_area_layout.addWidget(self.result_text)
+        # text_area_layout.addWidget(self.result_table)
+        text_area_layout.addWidget(self.result_tree)
 
         # 添加所有行到主布局
         main_layout.addLayout(map_layout)
@@ -694,6 +770,14 @@ class StructLayoutAnalyzerUI(QWidget):
         self.df_analysis = analysis_variable_layout(self.struct_parser, self.map_parser)
 
         self.dump_analysis_result()
+        self.prepare_display_data()
+        # display_dataframe_as_table(self.result_table, self.df_display)
+
+        display_col = list(self.df_display.columns)
+        display_col.remove('Variant')
+        display_col.remove('Struct')
+        display_col.remove('Index')
+        display_dataframe_as_tree_list(self.result_tree, self.df_display, 'Variant', display_col)
 
         self.output('')
         self.output('')
@@ -715,6 +799,19 @@ class StructLayoutAnalyzerUI(QWidget):
                 offset = row.address - symbol_start_address
                 self.output(f"    |--{row.member}: offset: {offset}, size: {row.size}, "
                             f": [0x{row.address:08X}, 0x{(row.address + row.size):08X})")
+
+    def prepare_display_data(self):
+        self.df_display = self.df_analysis.copy()
+        self.df_display['address'] = self.df_display['address'].apply(
+            lambda x: f"0x{x:08X}"
+        )
+        self.df_display.columns = [col.capitalize() for col in self.df_display.columns]
+
+        try:
+            self.df_display = self.injection.prepare_display_data(self.df_display)
+        except Exception as e:
+            print('Try call injection.prepare_display_data...')
+            print(str(e))
 
     def load_settings(self):
         """加载上次保存的设置[9](@ref)"""
