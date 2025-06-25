@@ -2,6 +2,7 @@ import re
 import traceback
 from typing import Optional
 
+import pandas as pd
 from PyQt5.QtWidgets import QSplitter
 from pycparser import c_parser, c_ast, c_generator
 
@@ -13,8 +14,11 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QSettings, Qt
 
 
-class GrammarParser:
-    """Parses C code to extract struct layouts and global variable declarations"""
+class CGrammarParser:
+    """
+    C Language grammar parser.
+    Parses C code to extract struct layouts and global variable declarations.
+    """
 
     def __init__(self, basic_type_sizes=None):
         """
@@ -531,16 +535,62 @@ class AdiXmlMapFileParser:
 #         print("请补充这些类型的定义")
 
 
-class MapAnalyzerApp(QWidget):
+def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: AdiXmlMapFileParser):
+
+    global_variables = c_grammar_parser.get_global_variables()
+    structure_member_layouts = c_grammar_parser.get_member_layout()
+
+    column_var_name = []
+    column_struct_name = []
+    column_member_name = []
+    column_member_address = []
+    column_member_size = []
+
+    for var_name, var_type in global_variables.items():
+        symbol_info = map_file_parser.get_symbol_info(var_name)
+
+        if not symbol_info:
+            print(f'Cannot find symbol {var_name} in map file.')
+            continue
+
+        symbol_start_address = symbol_info['address']
+
+        for struct_name, members in structure_member_layouts.items():
+            if struct_name == var_type:
+                for member, (offset, size) in members.items():
+                    column_var_name.append(var_name)
+                    column_struct_name.append(var_type)
+
+                    member_address = symbol_start_address + offset
+
+                    column_member_name.append(member)
+                    column_member_address.append(member_address)
+                    column_member_size.append(size)
+                break
+
+    return pd.DataFrame(
+        {
+            'variant': column_var_name,
+            'struct': column_struct_name,
+            'member': column_member_name,
+            'address': column_member_address,
+            'size': column_member_size,
+        }).reset_index()
+
+
+class StructLayoutAnalyzerUI(QWidget):
     def __init__(self):
         super().__init__()
         self.bin_edit = None
         self.map_edit = None
         self.input_text: Optional[QPlainTextEdit] = None
         self.result_text: Optional[QPlainTextEdit] = None
+        self.df_analysis = pd.DataFrame()
+        self.df_display = pd.DataFrame()
+        self.injection = None                   # Injection to change UI behaviour
         self.analyze_btn = None
-        self.map_parser = None
-        self.struct_parser = None
+        self.map_parser: Optional[AdiXmlMapFileParser] = None
+        self.struct_parser: Optional[CGrammarParser] = None
         self.settings = QSettings("SleepySoft", "MapAnalyzer")
         self.init_ui()
         self.load_settings()
@@ -628,7 +678,7 @@ class MapAnalyzerApp(QWidget):
 
         if struct_declare:
             self.result_text.appendPlainText("Struct declaration specified, parsing...")
-            self.struct_parser = GrammarParser()
+            self.struct_parser = CGrammarParser()
             if not self.struct_parser.parse(struct_declare):
                 self.struct_parser = None
                 self.result_text.appendPlainText("Struct declaration parse fail.")
@@ -641,34 +691,30 @@ class MapAnalyzerApp(QWidget):
             self.output("Analysis fail.\n")
             return
 
-        global_variables = self.struct_parser.get_global_variables()
-        structure_member_layouts = self.struct_parser.get_member_layout()
+        self.df_analysis = analysis_variable_layout(self.struct_parser, self.map_parser)
 
-        for var_name, var_type in global_variables.items():
-            symbol_info = self.map_parser.get_symbol_info(var_name)
+        self.dump_analysis_result()
 
-            if not symbol_info:
-                print(f'Cannot find symbol {var_name} in map file.')
-                continue
-
-            symbol_start_address = symbol_info['address']
-            symbol_size = symbol_info['size']
-
-            self.output(f"Structure variant {var_name}")
-            self.output(f"- Start address: 0x{symbol_start_address:08X}")
-            self.output(f"- Size: {symbol_size}")
-
-            for struct_name, members in structure_member_layouts.items():
-                if struct_name == var_type:
-                    self.output("- Members: ")
-                    for member, (offset, size) in members.items():
-                        member_address = symbol_start_address + offset
-                        self.output(f"    |--{member}: offset: {offset}, size: {size}, "
-                                    f": [0x{member_address:08X}, 0x{member_address + size:08X})")
-                    break
-
-
+        self.output('')
+        self.output('')
         self.output("Analysis completed!\n")
+
+    def dump_analysis_result(self):
+        grouped = self.df_analysis.groupby('variant')
+        for group_name, group_df in grouped:
+            symbol_start_address = None
+            for row in group_df.itertuples():
+                if not symbol_start_address:
+                    symbol_start_address = row.address
+                    self.output('')
+                    self.output('')
+                    self.output(f"{row.struct} {group_name};")
+                    self.output(f"- Start address: 0x{symbol_start_address:08X}")
+                    self.output(f"- Size: {group_df['size'].sum()}")
+
+                offset = row.address - symbol_start_address
+                self.output(f"    |--{row.member}: offset: {offset}, size: {row.size}, "
+                            f": [0x{row.address:08X}, 0x{(row.address + row.size):08X})")
 
     def load_settings(self):
         """加载上次保存的设置[9](@ref)"""
@@ -697,7 +743,7 @@ def main():
     # verify_struct_layout_calc()
 
     app = QApplication(sys.argv)
-    window = MapAnalyzerApp()
+    window = StructLayoutAnalyzerUI()
     window.show()
     sys.exit(app.exec_())
 
