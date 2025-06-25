@@ -544,6 +544,7 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
     column_var_name = []
     column_struct_name = []
     column_member_name = []
+    column_member_offset = []
     column_member_address = []
     column_member_size = []
 
@@ -565,8 +566,9 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
                     member_address = symbol_start_address + offset
 
                     column_member_name.append(member)
-                    column_member_address.append(member_address)
+                    column_member_offset.append(offset)
                     column_member_size.append(size)
+                    column_member_address.append(member_address)
                 break
 
     return pd.DataFrame(
@@ -574,8 +576,9 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
             'variant': column_var_name,
             'struct': column_struct_name,
             'member': column_member_name,
-            'address': column_member_address,
+            'offset': column_member_offset,
             'size': column_member_size,
+            'address': column_member_address,
         }).reset_index()
 
 
@@ -750,7 +753,7 @@ class StructLayoutAnalyzerUI(QWidget):
             self.map_parser = AdiXmlMapFileParser(map_file)
             self.result_text.appendPlainText("Map file parse done.")
         else:
-            self.map_parser = NULL
+            self.map_parser = None
 
         if struct_declare:
             self.result_text.appendPlainText("Struct declaration specified, parsing...")
@@ -808,7 +811,9 @@ class StructLayoutAnalyzerUI(QWidget):
         self.df_display.columns = [col.capitalize() for col in self.df_display.columns]
 
         try:
-            self.df_display = self.injection.prepare_display_data(self.df_display)
+            df_display = self.injection.prepare_display_data(self.df_display)
+            if df_display is not None:
+                self.df_display = df_display
         except Exception as e:
             print('Try call injection.prepare_display_data...')
             print(str(e))
