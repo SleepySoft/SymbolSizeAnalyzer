@@ -581,7 +581,7 @@ def display_dataframe_as_tree_list(tree: QTreeWidget, df: pd.DataFrame, group_by
 
 
 class StructLayoutAnalyzerUI(QWidget):
-    def __init__(self):
+    def __init__(self, injection):
         super().__init__()
         self.bin_edit = None
         self.map_edit = None
@@ -591,7 +591,7 @@ class StructLayoutAnalyzerUI(QWidget):
         self.result_tree: Optional[QTreeWidget] = None
         self.df_analysis = pd.DataFrame()
         self.df_display = pd.DataFrame()
-        self.injection = None                   # Injection to change UI behaviour
+        self.injection = injection                  # Injection to change UI behaviour
         self.analyze_btn = None
         self.map_parser: Optional[AdiXmlMapFileParser] = None
         self.struct_parser: Optional[CGrammarParser] = None
@@ -659,6 +659,13 @@ class StructLayoutAnalyzerUI(QWidget):
 
         self.setLayout(main_layout)
 
+        try:
+            self.injection.init_ui(
+                main_layout, [map_layout, bin_layout, analyze_layout, text_area_layout])
+        except Exception as e:
+            print('Try call injection.init_ui...')
+            print(str(e))
+
     def select_file(self, edit_widget, file_filter):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select File", "", file_filter
@@ -700,16 +707,25 @@ class StructLayoutAnalyzerUI(QWidget):
             self.output("Analysis fail.\n")
             return
 
-        self.df_analysis = analysis_variable_layout(self.struct_parser, self.map_parser)
+        analysis_result = analysis_variable_layout(self.struct_parser, self.map_parser)
+        try:
+            analysis_result = self.injection.extra_analysis(analysis_result)
+        except Exception as e:
+            print('Try call injection.extra_analysis...')
+            print(str(e))
+        self.df_analysis = analysis_result
 
         self.dump_analysis_result()
         self.prepare_display_data()
-        # display_dataframe_as_table(self.result_table, self.df_display)
 
-        display_col = list(self.df_display.columns)
-        display_col.remove('Variant')
-        display_col.remove('Struct')
-        display_col.remove('Index')
+        display_col = ['Member', 'Offset', 'Size', 'Address']
+        try:
+            display_col = self.injection.adjust_display_column(display_col)
+        except Exception as e:
+            print('Try call injection.adjust_display_column...')
+            print(str(e))
+
+        # display_dataframe_as_table(self.result_table, self.df_display)
         display_dataframe_as_tree_list(self.result_tree, self.df_display, 'Variant', display_col)
 
         self.output('')
