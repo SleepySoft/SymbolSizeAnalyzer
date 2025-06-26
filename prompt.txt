@@ -24,6 +24,16 @@ data.append({
 
 
 
+我有一个dataframe：self.top_data，里面有"offset"和"size"字段，里面的数据offset从小到大排列，且布局上无空洞。
+我希望根据传入的_offset和_size参数返回连续匹配行的dataframe，方法如下：
+
+start_offset = _offset
+end_offset = _offset + _size
+将dataframe的offset列+size列与相加，得到offset_until列
+返回[offset, offset_until]和[start_offset, end_offset]重叠的行组成的dataframe
+对于返回的行，找到最小的offset和offset_until，与[start_offset, end_offset]比较，可以得知是否越界（越上界/下界/部分越界/访问的整个区域越界）。
+所有文本和注释都要使用英文。
+
 
 
 

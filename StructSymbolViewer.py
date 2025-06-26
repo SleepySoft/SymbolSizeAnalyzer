@@ -559,7 +559,8 @@ def display_dataframe_as_table(table_view, dataframe):
     table_view.setAlternatingRowColors(True)
 
 
-def display_dataframe_as_tree_list(tree: QTreeWidget, df: pd.DataFrame, group_by_column: str, display_column: [str]):
+def display_dataframe_as_tree_list(tree: QTreeWidget, df: pd.DataFrame,
+                                   group_by_column: str, display_column: [str], unique_column: str):
     # 设置列标题（分组列 + 展示列）
     headers = [group_by_column] + display_column
     tree.setHeaderLabels(headers)
@@ -575,13 +576,15 @@ def display_dataframe_as_tree_list(tree: QTreeWidget, df: pd.DataFrame, group_by
         # 添加子节点（每组内的数据行）
         for _, row in group_df.iterrows():
             child = QTreeWidgetItem(root_item)
+            if unique_column:
+                child.setData(0, Qt.UserRole, row[unique_column])
             for col_idx, col in enumerate(display_column, start=1):  # 从第2列开始填充
                 child.setText(col_idx, str(row[col]))
     tree.expandAll()
 
 
 class StructLayoutAnalyzerUI(QWidget):
-    def __init__(self, injection):
+    def __init__(self, injection = None):
         super().__init__()
         self.bin_edit = None
         self.map_edit = None
@@ -726,7 +729,8 @@ class StructLayoutAnalyzerUI(QWidget):
             print(str(e))
 
         # display_dataframe_as_table(self.result_table, self.df_display)
-        display_dataframe_as_tree_list(self.result_tree, self.df_display, 'Variant', display_col)
+        display_dataframe_as_tree_list(self.result_tree, self.df_display,
+                                       'Variant', display_col, 'Address')
 
         self.output('')
         self.output('')
