@@ -2,12 +2,12 @@ import re
 import sys
 import traceback
 import pandas as pd
-from typing import Optional
+from typing import Optional, Tuple
 from pycparser import c_parser, c_ast
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLineEdit, QPushButton, QPlainTextEdit, QFileDialog, QTreeWidget, QTreeWidgetItem
+    QLineEdit, QPushButton, QPlainTextEdit, QFileDialog, QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator
 )
 from PyQt5.QtCore import QSettings, Qt, QAbstractTableModel
 
@@ -399,7 +399,7 @@ class MapFileParser:
 import xml.etree.ElementTree as ET
 
 
-class AdiXmlMapFileParser:
+class AdiXmlMapFileParser(MapFileParser):
     def __init__(self, xml_file):
         self.original_symbols = {}  # 存储原始XML中的符号信息
         self.normalized_map = {}    # 按规范化名称索引的符号表
@@ -592,7 +592,7 @@ class StructLayoutAnalyzerUI(QWidget):
         self.result_text: Optional[QPlainTextEdit] = None
         # self.result_table: Optional[QTableView] = None
         self.result_tree: Optional[QTreeWidget] = None
-        self.df_analysis = pd.DataFrame()
+        self.df_symbol = pd.DataFrame()
         self.df_display = pd.DataFrame()
         self.injection = injection                  # Injection to change UI behaviour
         self.analyze_btn = None
@@ -716,7 +716,7 @@ class StructLayoutAnalyzerUI(QWidget):
         except Exception as e:
             print('Try call injection.extra_analysis...')
             print(str(e))
-        self.df_analysis = analysis_result
+        self.df_symbol = analysis_result
 
         self.dump_analysis_result()
         self.prepare_display_data()
@@ -736,8 +736,61 @@ class StructLayoutAnalyzerUI(QWidget):
         self.output('')
         self.output("Analysis completed!\n")
 
+    @staticmethod
+    def format_address_hex(address: int) -> str:
+        return f"0x{address:08X}"
+
+    @staticmethod
+    def map_tree_items(tree_widget, func):
+        iterator = QTreeWidgetItemIterator(tree_widget)
+        while iterator.value():
+            item = iterator.value()
+            func(item)
+            iterator += 1
+
+    def find_symbols_in_offset_range(self, offset: int, size: int = 1):
+        start_offset = offset
+        end_offset = offset + size
+
+        # Create a temporary DataFrame with the 'offset_until' column (offset + size)
+        temp_df = self.df_symbol.assign(offset_until=self.df_symbol['offset'] + self.df_symbol['size'])
+
+        # Filter rows that overlap with the query interval
+        overlap_condition = (temp_df['offset'] < end_offset) & (temp_df['offset_until'] > start_offset)
+        result_df = temp_df.loc[overlap_condition].copy()
+
+        return result_df
+
+    def find_symbols_in_address_range(self, address: int, size: int = 1):
+        start_address = address
+        end_address = address + size
+
+        # Create a temporary DataFrame with the 'offset_until' column (offset + size)
+        temp_df = self.df_symbol.assign(address_until=self.df_symbol['address'] + self.df_symbol['size'])
+
+        # Filter rows that overlap with the query interval
+        overlap_condition = (temp_df['address'] < end_address) & (temp_df['offset_until'] > start_address)
+        result_df = temp_df.loc[overlap_condition].copy()
+
+        return result_df
+
+    def select_tree_items_by_df_symbol_lines(self, df_symbol: pd.DataFrame):
+        tree_item_user_data = [self.format_address_hex(address) for address in df_symbol['address']]
+        selected_tree_items = []
+        other_tree_items = []
+
+        def select_tree_items(item: QTreeWidgetItem):
+            user_data = item.data(0, Qt.UserRole)
+            if user_data and user_data in tree_item_user_data:
+                selected_tree_items.append(item)
+            else:
+                other_tree_items.append(item)
+        self.map_tree_items(self.result_tree, select_tree_items)
+
+        return selected_tree_items, other_tree_items
+
     def dump_analysis_result(self):
-        grouped = self.df_analysis.groupby('variant')
+        grouped = self.df_symbol.groupby('variant')
         for group_name, group_df in grouped:
             symbol_start_address = None
             for row in group_df.itertuples():
@@ -754,10 +807,8 @@ class StructLayoutAnalyzerUI(QWidget):
                             f": [0x{row.address:08X}, 0x{(row.address + row.size):08X})")
 
     def prepare_display_data(self):
-        self.df_display = self.df_analysis.copy()
-        self.df_display['address'] = self.df_display['address'].apply(
-            lambda x: f"0x{x:08X}"
-        )
+        self.df_display = self.df_symbol.copy()
+        self.df_display['address'] = self.df_display['address'].apply(self.format_address_hex)
         self.df_display.columns = [col.capitalize() for col in self.df_display.columns]
 
         try:
