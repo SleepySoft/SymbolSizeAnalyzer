@@ -365,7 +365,7 @@ class CGrammarParser:
         :return: Dictionary of struct layouts
         """
         return {
-            name: {m: (info['offset'], info['size'])
+            name: {m: (info['offset'], info['size'], info['type'])
                    for m, info in layout['members'].items()}
             for name, layout in self.struct_layouts.items()
         }
@@ -474,6 +474,7 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
     column_var_name = []
     column_struct_name = []
     column_member_name = []
+    column_member_type = []
     column_member_offset = []
     column_member_address = []
     column_member_size = []
@@ -489,13 +490,14 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
 
         for struct_name, members in structure_member_layouts.items():
             if struct_name == var_type:
-                for member, (offset, size) in members.items():
+                for member, (offset, size, member_type) in members.items():
                     column_var_name.append(var_name)
                     column_struct_name.append(var_type)
 
                     member_address = symbol_start_address + offset
 
                     column_member_name.append(member)
+                    column_member_type.append(member_type)
                     column_member_offset.append(offset)
                     column_member_size.append(size)
                     column_member_address.append(member_address)
@@ -506,6 +508,7 @@ def analysis_variable_layout(c_grammar_parser: CGrammarParser, map_file_parser: 
             'variant': column_var_name,
             'struct': column_struct_name,
             'member': column_member_name,
+            'type': column_member_type,
             'offset': column_member_offset,
             'size': column_member_size,
             'address': column_member_address,
@@ -594,6 +597,7 @@ class StructLayoutAnalyzerUI(QWidget):
         self.result_tree: Optional[QTreeWidget] = None
         self.df_symbol = pd.DataFrame()
         self.df_display = pd.DataFrame()
+        self.display_column = []
         self.injection = injection                  # Injection to change UI behaviour
         self.analyze_btn = None
         self.map_parser: Optional[AdiXmlMapFileParser] = None
@@ -721,7 +725,7 @@ class StructLayoutAnalyzerUI(QWidget):
         self.dump_analysis_result()
         self.prepare_display_data()
 
-        display_col = ['Member', 'Offset', 'Size', 'Address']
+        display_col = ['Member', 'Type', 'Offset', 'Size', 'Address']
         try:
             display_col = self.injection.adjust_display_column(display_col)
         except Exception as e:
@@ -731,6 +735,7 @@ class StructLayoutAnalyzerUI(QWidget):
         # display_dataframe_as_table(self.result_table, self.df_display)
         display_dataframe_as_tree_list(self.result_tree, self.df_display,
                                        'Variant', display_col, 'Address')
+        self.display_column = display_col
 
         self.output('')
         self.output('')
@@ -747,6 +752,12 @@ class StructLayoutAnalyzerUI(QWidget):
             item = iterator.value()
             func(item)
             iterator += 1
+
+    def get_column_index(self, column_name) -> int:
+        try:
+            return self.display_column.index(column_name)
+        except Exception:
+            return -1
 
     def find_symbols_in_offset_range(self, offset: int, size: int = 1):
         start_offset = offset
