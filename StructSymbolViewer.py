@@ -723,19 +723,7 @@ class StructLayoutAnalyzerUI(QWidget):
         self.df_symbol = analysis_result
 
         self.dump_analysis_result()
-        self.prepare_display_data()
-
-        display_col = ['Member', 'Type', 'Offset', 'Size', 'Address']
-        try:
-            display_col = self.injection.adjust_display_column(display_col)
-        except Exception as e:
-            print('Try call injection.adjust_display_column...')
-            print(str(e))
-
-        # display_dataframe_as_table(self.result_table, self.df_display)
-        display_dataframe_as_tree_list(self.result_tree, self.df_display,
-                                       'Variant', display_col, 'Address')
-        self.display_column = display_col
+        self.update_tree_view()
 
         self.output('')
         self.output('')
@@ -829,6 +817,21 @@ class StructLayoutAnalyzerUI(QWidget):
         except Exception as e:
             print('Try call injection.prepare_display_data...')
             print(str(e))
+
+    def update_tree_view(self):
+        self.prepare_display_data()
+
+        display_col = ['Member', 'Type', 'Offset', 'Size', 'Address']
+        try:
+            display_col = self.injection.adjust_display_column(display_col)
+        except Exception as e:
+            print('Try call injection.adjust_display_column...')
+            print(str(e))
+
+        # display_dataframe_as_table(self.result_table, self.df_display)
+        display_dataframe_as_tree_list(self.result_tree, self.df_display,
+                                       'Variant', display_col, 'Address')
+        self.display_column = display_col
 
     def load_settings(self):
         """加载上次保存的设置[9](@ref)"""
